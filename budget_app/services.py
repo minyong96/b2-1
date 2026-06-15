@@ -340,13 +340,16 @@ class TransactionService:
         q: Optional[str] = None,
         tag: Optional[str] = None
     ) -> Generator[Transaction, None, None]:
-        for index_entry in self.storage.load_transaction_date_index_stream():
-            indexed_date = index_entry["date"]
-            if to_date and indexed_date > to_date:
-                continue
-            if from_date and indexed_date < from_date:
-                break
+        from_date = self._validate_search_date(from_date)
+        to_date = self._validate_search_date(to_date)
 
+        if from_date and to_date and from_date > to_date:
+            return
+
+        for index_entry in self.storage.load_transaction_date_index_range_stream(
+            from_date=from_date,
+            to_date=to_date,
+        ):
             transaction = self.storage.read_transaction_at_offset(index_entry["offset"])
             if category and transaction.category.name != category:
                 continue
@@ -358,6 +361,19 @@ class TransactionService:
                 continue
 
             yield transaction
+
+    def _validate_search_date(self, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned_value = value.strip()
+        try:
+            datetime.strptime(cleaned_value, "%Y-%m-%d")
+        except ValueError:
+            raise BudgetAppError(
+                "날짜 형식이 올바르지 않습니다.",
+                "YYYY-MM-DD 형식으로 입력해주세요."
+            )
+        return cleaned_value
 
     def summarize_month(self, month: str, top: int = 5) -> Dict[str, Any]:
         month_start = f"{month}-01"
